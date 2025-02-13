@@ -283,7 +283,6 @@ public class PostgresValidator extends DatabaseValidator implements AutoCloseabl
             try (var stmt =
                     jdbcConnection.prepareStatement(
                             ValidatorUtils.getSql("postgres.superuser.check"))) {
-                stmt.setString(1, this.user);
                 var res = stmt.executeQuery();
                 while (res.next()) {
                     isSuperUser = res.getBoolean(1);
@@ -294,7 +293,6 @@ public class PostgresValidator extends DatabaseValidator implements AutoCloseabl
                 try (var stmt =
                         jdbcConnection.prepareStatement(
                                 ValidatorUtils.getSql("postgres.role.check"))) {
-                    stmt.setString(1, this.user);
                     var res = stmt.executeQuery();
                     while (res.next()) {
                         if (!res.getBoolean(1)) {
@@ -322,7 +320,6 @@ public class PostgresValidator extends DatabaseValidator implements AutoCloseabl
                         ValidatorUtils.getSql("postgres.table_read_privilege.check"))) {
             stmt.setString(1, this.schemaName);
             stmt.setString(2, this.tableName);
-            stmt.setString(3, this.user);
             var res = stmt.executeQuery();
             while (res.next()) {
                 if (!res.getBoolean(1)) {
@@ -566,14 +563,12 @@ public class PostgresValidator extends DatabaseValidator implements AutoCloseabl
         try (var stmt =
                 jdbcConnection.prepareStatement(
                         ValidatorUtils.getSql("postgres.database_privilege.check"))) {
-            stmt.setString(1, this.user);
-            stmt.setString(2, this.dbName);
-            stmt.setString(3, this.user);
+            stmt.setString(1, this.dbName);
             var res = stmt.executeQuery();
             while (res.next()) {
                 if (!res.getBoolean(1)) {
                     throw ValidatorUtils.invalidArgument(
-                            "Postgres user must have create privilege on database '"
+                            "Postgres user must have create privilege on the database '"
                                     + this.dbName
                                     + "'");
                 }
@@ -581,50 +576,20 @@ public class PostgresValidator extends DatabaseValidator implements AutoCloseabl
         }
 
         // check whether the user has ownership on the table
-        boolean isTableOwner = false;
-        String tableOwner = null;
-        // check if user is the direct owner of table
         try (var stmt =
-                jdbcConnection.prepareStatement(ValidatorUtils.getSql("postgres.table_owner"))) {
+                jdbcConnection.prepareStatement(
+                        ValidatorUtils.getSql("postgres.table_owner.check"))) {
             stmt.setString(1, schemaName);
             stmt.setString(2, tableName);
             var res = stmt.executeQuery();
             while (res.next()) {
-                tableOwner = res.getString("tableowner");
-                if (tableOwner != null && tableOwner.equals(this.user)) {
-                    isTableOwner = true;
-                    break;
+                if (!res.getBoolean(1)) {
+                    throw ValidatorUtils.invalidArgument(
+                            "Postgres user must be the owner of the table '"
+                                    + tableName
+                                    + "' to create/alter publication");
                 }
             }
-        }
-
-        // if user is not the direct owner, check if user belongs to an owner group
-        if (!isTableOwner && null != tableOwner) {
-            try (var stmt =
-                    jdbcConnection.prepareStatement(
-                            ValidatorUtils.getSql("postgres.users_of_group"))) {
-                stmt.setString(1, tableOwner);
-                var res = stmt.executeQuery();
-                while (res.next()) {
-                    var usersArray = res.getArray("members");
-                    if (usersArray == null) {
-                        break;
-                    }
-                    String[] users = (String[]) usersArray.getArray();
-                    if (null != users
-                            && Arrays.asList(users)
-                                    .contains(userProps.get(DbzConnectorConfig.USER))) {
-                        isTableOwner = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!isTableOwner) {
-            throw ValidatorUtils.invalidArgument(
-                    "Postgres user must be the owner of table '"
-                            + tableName
-                            + "' to create/alter publication");
         }
     }
 
